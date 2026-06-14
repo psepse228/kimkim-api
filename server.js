@@ -511,8 +511,30 @@ async function researchPerson(input) {
   const nameQuery = query.includes('http') ? (company || query) : query;
   const coQuery = company || nameQuery;
 
-  const uzbekSearch = await tavilySearch(`${coQuery} Uzbekistan investment projects cooperation agreements 2025`, true);
-  const uzbekText = uzbekSearch.text;
+  // Run all company + person searches in parallel for speed and coverage
+  const [
+    uzbekSearch,
+    uzbekSearchRu,
+    bioText,
+    companyOverview,
+    companyFinancials,
+    companyEmployees,
+    companyNews,
+    personImg,
+    logoImg,
+  ] = await Promise.all([
+    tavilySearch(`${coQuery} Uzbekistan investment projects cooperation agreements 2024 2025`, true),
+    tavilySearch(`${coQuery} Узбекистан инвестиции проекты соглашения сотрудничество 2024 2025`),
+    tavilySearch(`${nameQuery} biography education career professional background history`),
+    tavilySearch(`${coQuery} company history founded year headquarters CEO leadership overview`),
+    tavilySearch(`${coQuery} annual revenue profit financial results fiscal year 2024 2025`),
+    tavilySearch(`${coQuery} number of employees offices countries global operations 2024 2025`),
+    tavilySearch(`${coQuery} news latest developments strategy acquisitions deals 2025`),
+    searchImg(`${nameQuery} official portrait professional headshot high resolution`),
+    searchImg(`${coQuery} official logo transparent high resolution`),
+  ]);
+
+  const uzbekText = uzbekSearch.text + '\n\n' + uzbekSearchRu;
   const uzbekSources = uzbekSearch.sources || [];
 
   // If LinkedIn URL provided, fetch it directly + do name search for completeness
@@ -525,22 +547,18 @@ async function researchPerson(input) {
     linkedinText = liDirect + '\n\n' + liSearch;
   }
 
-  const [bioText, newsText, personImg, logoImg] = await Promise.all([
-    tavilySearch(`${nameQuery} biography education career professional background history`),
-    tavilySearch(`${coQuery} annual report revenue employees assets 2024 2025 latest`),
-    searchImg(`${nameQuery} official portrait professional headshot high resolution`),
-    searchImg(`${coQuery} official logo transparent high resolution`),
-  ]);
-
   const context = [
     extraContext ? `КОНТЕКСТ ОТ КЛИЕНТА (наивысший приоритет):\n${extraContext}` : '',
     `БИОГРАФИЯ:\n${bioText}`,
+    `ОБЗОР КОМПАНИИ (история, основание, штаб-квартира, руководство):\n${companyOverview}`,
+    `ФИНАНСОВЫЕ ПОКАЗАТЕЛИ (выручка, прибыль, активы 2024-2025):\n${companyFinancials}`,
+    `СОТРУДНИКИ И ГЕОГРАФИЯ (численность персонала, офисы, страны):\n${companyEmployees}`,
+    `ПОСЛЕДНИЕ НОВОСТИ 2024-2025:\n${companyNews}`,
     `ДЕЯТЕЛЬНОСТЬ В УЗБЕКИСТАНЕ:\n${uzbekText}`,
-    `НОВОСТИ И ФИНАНСЫ:\n${newsText}`,
     linkedinText ? `LINKEDIN:\n${linkedinText}` : '',
   ].filter(Boolean).join('\n\n---\n\n');
 
-  const prompt = `Ты составляешь официальный справочный документ для Министерства инвестиций Республики Узбекистан. Используй ВСЕ предоставленные данные, особенно контекст от клиента.
+  const prompt = `Ты составляешь официальный справочный документ для Министерства инвестиций Республики Узбекистан. Используй ВСЕ предоставленные данные, особенно контекст от клиента. Все разделы о компании должны содержать САМУЮ СВЕЖУЮ информацию из поисковых результатов 2024-2025 года - численность сотрудников, финансовые показатели, офисы, руководство.
 
 ${context}
 ${title ? `\nДолжность: ${title}` : ''}
@@ -554,11 +572,11 @@ ${company ? `\nКомпания: ${company}` : ''}
   "title": "Полное название должности на русском языке",
   "company_name": "Название компании на языке оригинала (латиница)",
   "company_description_paragraphs": [
-    "Параграф 1 (3-4 предложения): полная история компании - кто основал, когда, где, с чего начиналась, как развивалась до сегодняшнего дня. Штаб-квартира с городом и штатом/страной.",
-    "Параграф 2 (3-4 предложения): АКТУАЛЬНЫЕ финансовые показатели из официальных отчётов. Используй ТОЛЬКО реальные цифры подтверждённые источниками. Оберни КАЖДУЮ неподтверждённую цифру в теги: [?]сумма[/?]. Пример подтверждённого: 'Годовая выручка за 2024 г. составила $ 21,4 млрд.' Пример неподтверждённого: '[?]Выручка оценивается в $ 23 млрд.[/?]'",
-    "Параграф 3 (3-4 предложения): численность сотрудников, география присутствия - конкретно в каких странах, штатах, регионах работает, сколько офисов/объектов.",
+    "Параграф 1 (3-4 предложения): полная история компании - кто основал, когда, где, с чего начиналась, как развивалась до сегодняшнего дня. Штаб-квартира с конкретным городом и штатом/страной. Используй данные из раздела ОБЗОР КОМПАНИИ.",
+    "Параграф 2 (3-4 предложения): АКТУАЛЬНЫЕ финансовые показатели из официальных отчётов 2024-2025 гг. Используй данные из раздела ФИНАНСОВЫЕ ПОКАЗАТЕЛИ. ТОЛЬКО реальные цифры подтверждённые источниками. Оберни КАЖДУЮ неподтверждённую цифру в теги: [?]сумма[/?]. Пример подтверждённого: 'Годовая выручка за 2024 г. составила $ 21,4 млрд.' Пример неподтверждённого: '[?]Выручка оценивается в $ 23 млрд.[/?]'",
+    "Параграф 3 (3-4 предложения): численность сотрудников (актуальная цифра из раздела СОТРУДНИКИ И ГЕОГРАФИЯ), география присутствия - конкретно в каких странах, штатах, регионах работает, сколько офисов/объектов.",
     "Параграф 4 (3-4 предложения): ключевые продукты, технологии, услуги - чем конкретно занимается и чем известна в своей отрасли.",
-    "Параграф 5 (3-4 предложения): последние новости и достижения 2024-2025, стратегия развития, крупные сделки или проекты."
+    "Параграф 5 (3-4 предложения): последние новости и достижения 2024-2025 из раздела ПОСЛЕДНИЕ НОВОСТИ, стратегия развития, крупные сделки или проекты."
   ],
   "company_activities_paragraph": "2-3 предложения: перечисли основные направления деятельности компании в виде связного текста, без списков.",
   "company_intro": "1-2 предложения: с какого года и как именно компания сотрудничает с Узбекистаном. Только реальные факты. Если нет подтверждённых данных - напиши об этом честно.",
@@ -612,8 +630,8 @@ ${company ? `\nКомпания: ${company}` : ''}
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      max_tokens: 6000,
+      model: 'gpt-4o',
+      max_tokens: 8000,
       response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: prompt }],
     }),
