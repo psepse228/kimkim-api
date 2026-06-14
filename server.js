@@ -649,7 +649,8 @@ ${company ? `\nКомпания: ${company}` : ''}
   });
 
   const data = await res.json();
-  if (!data.choices?.[0]?.message?.content) throw new Error('OpenAI returned no content');
+  if (data.error) throw new Error(`OpenAI: ${data.error.message || JSON.stringify(data.error)}`);
+  if (!data.choices?.[0]?.message?.content) throw new Error(`OpenAI no content (finish_reason: ${data.choices?.[0]?.finish_reason}, usage: ${JSON.stringify(data.usage)})`);
   const profile = JSON.parse(data.choices[0].message.content);
   return { ...profile, personImg, logoImg, uzbekSources };
 }
