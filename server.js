@@ -489,21 +489,32 @@ function makeImgPara(imgData, wPx, hPx) {
 
 // ─── RESEARCH ─────────────────────────────────────────────────────────────────
 async function tavilySearch(query, returnSources = false) {
-  const res = await fetch('https://api.tavily.com/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      api_key: TAVILY_API_KEY,
-      query,
-      search_depth: 'advanced',
-      max_results: 8,
-      include_answer: true,
-    }),
-  });
-  const data = await res.json();
-  const text = (data.answer || '') + '\n\n' + (data.results || []).map(r => `${r.title}: ${r.content}`).join('\n\n');
-  if (returnSources) return { text, sources: (data.results || []).map(r => ({ title: r.title, url: r.url })) };
-  return text;
+  try {
+    const res = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: TAVILY_API_KEY,
+        query,
+        search_depth: 'advanced',
+        max_results: 8,
+        include_answer: true,
+      }),
+    });
+    if (!res.ok) {
+      console.error(`Tavily ${res.status} for: ${query}`);
+      if (returnSources) return { text: '', sources: [] };
+      return '';
+    }
+    const data = await res.json();
+    const text = (data.answer || '') + '\n\n' + (data.results || []).map(r => `${r.title}: ${r.content}`).join('\n\n');
+    if (returnSources) return { text, sources: (data.results || []).map(r => ({ title: r.title, url: r.url })) };
+    return text;
+  } catch (err) {
+    console.error(`Tavily error for "${query}": ${err.message}`);
+    if (returnSources) return { text: '', sources: [] };
+    return '';
+  }
 }
 
 async function researchPerson(input) {
