@@ -497,7 +497,7 @@ async function tavilySearch(query, returnSources = false) {
         api_key: TAVILY_API_KEY,
         query,
         search_depth: 'advanced',
-        max_results: 8,
+        max_results: 5,
         include_answer: true,
       }),
     });
@@ -507,7 +507,9 @@ async function tavilySearch(query, returnSources = false) {
       return '';
     }
     const data = await res.json();
-    const text = (data.answer || '') + '\n\n' + (data.results || []).map(r => `${r.title}: ${r.content}`).join('\n\n');
+    const answer = (data.answer || '').substring(0, 600);
+    const snippets = (data.results || []).map(r => `${r.title}: ${r.content.substring(0, 400)}`).join('\n\n');
+    const text = answer + '\n\n' + snippets;
     if (returnSources) return { text, sources: (data.results || []).map(r => ({ title: r.title, url: r.url })) };
     return text;
   } catch (err) {
@@ -558,7 +560,7 @@ async function researchPerson(input) {
     linkedinText = liDirect + '\n\n' + liSearch;
   }
 
-  const context = [
+  const rawContext = [
     extraContext ? `КОНТЕКСТ ОТ КЛИЕНТА (наивысший приоритет):\n${extraContext}` : '',
     `БИОГРАФИЯ:\n${bioText}`,
     `ОБЗОР КОМПАНИИ (история, основание, штаб-квартира, руководство):\n${companyOverview}`,
@@ -568,6 +570,8 @@ async function researchPerson(input) {
     `ДЕЯТЕЛЬНОСТЬ В УЗБЕКИСТАНЕ:\n${uzbekText}`,
     linkedinText ? `LINKEDIN:\n${linkedinText}` : '',
   ].filter(Boolean).join('\n\n---\n\n');
+  // Cap context to ~16k chars (~4k tokens) to stay within TPM limits
+  const context = rawContext.length > 16000 ? rawContext.substring(0, 16000) + '\n\n[...контекст сокращён для соблюдения лимитов...]' : rawContext;
 
   const prompt = `Ты составляешь официальный справочный документ для Министерства инвестиций Республики Узбекистан. Используй ВСЕ предоставленные данные, особенно контекст от клиента. Все разделы о компании должны содержать САМУЮ СВЕЖУЮ информацию из поисковых результатов 2024-2025 года - численность сотрудников, финансовые показатели, офисы, руководство.
 
