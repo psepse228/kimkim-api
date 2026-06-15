@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
         AlignmentType, BorderStyle, WidthType, VerticalAlign, PageBreak,
         ImageRun, UnderlineType, NumberFormat } = require('docx');
@@ -497,7 +497,7 @@ async function tavilySearch(query, returnSources = false) {
         api_key: TAVILY_API_KEY,
         query,
         search_depth: 'advanced',
-        max_results: 5,
+        max_results: 7,
         include_answer: true,
       }),
     });
@@ -507,8 +507,8 @@ async function tavilySearch(query, returnSources = false) {
       return '';
     }
     const data = await res.json();
-    const answer = (data.answer || '').substring(0, 600);
-    const snippets = (data.results || []).map(r => `${r.title}: ${r.content.substring(0, 400)}`).join('\n\n');
+    const answer = (data.answer || '').substring(0, 900);
+    const snippets = (data.results || []).map(r => `${r.title}: ${r.content.substring(0, 700)}`).join('\n\n');
     const text = answer + '\n\n' + snippets;
     if (returnSources) return { text, sources: (data.results || []).map(r => ({ title: r.title, url: r.url })) };
     return text;
@@ -524,30 +524,36 @@ async function researchPerson(input) {
   const nameQuery = query.includes('http') ? (company || query) : query;
   const coQuery = company || nameQuery;
 
-  // Run all company + person searches in parallel for speed and coverage
+  // Run all searches in parallel for maximum coverage
   const [
     uzbekSearch,
     uzbekSearchRu,
+    uzbekSearchMOU,
+    uzbekSearchRecent,
     bioText,
     companyOverview,
     companyFinancials,
     companyEmployees,
     companyNews,
+    companyLeadership,
     personImg,
     logoImg,
   ] = await Promise.all([
     tavilySearch(`${coQuery} Uzbekistan investment projects cooperation agreements 2024 2025`, true),
-    tavilySearch(`${coQuery} Узбекистан инвестиции проекты соглашения сотрудничество 2024 2025`),
+    tavilySearch(`${coQuery} Узбекистан инвестиции проекты соглашения сотрудничество 2023 2024 2025`),
+    tavilySearch(`${coQuery} Uzbekistan MOU memorandum signed partnership office operations 2023 2024 2025`),
+    tavilySearch(`${coQuery} Узбекистан договор МОУ партнёрство офис операции проекты последние новости`),
     tavilySearch(`${nameQuery} biography education career professional background history`),
-    tavilySearch(`${coQuery} company history founded year headquarters CEO leadership overview`),
-    tavilySearch(`${coQuery} annual revenue profit financial results fiscal year 2024 2025`),
-    tavilySearch(`${coQuery} number of employees offices countries global operations 2024 2025`),
-    tavilySearch(`${coQuery} news latest developments strategy acquisitions deals 2025`),
+    tavilySearch(`${coQuery} company history founded year headquarters overview`),
+    tavilySearch(`${coQuery} annual revenue profit financial results 2024 2025`),
+    tavilySearch(`${coQuery} employees offices countries global operations 2024 2025`),
+    tavilySearch(`${coQuery} news developments strategy acquisitions 2025`),
+    tavilySearch(`${coQuery} CEO founder president chairman executive biography education career`),
     searchImg(`${nameQuery} official portrait professional headshot high resolution`),
     searchImg(`${coQuery} official logo transparent high resolution`),
   ]);
 
-  const uzbekText = uzbekSearch.text + '\n\n' + uzbekSearchRu;
+  const uzbekText = uzbekSearch.text + '\n\n' + uzbekSearchRu + '\n\n' + uzbekSearchMOU + '\n\n' + uzbekSearchRecent;
   const uzbekSources = uzbekSearch.sources || [];
 
   // If LinkedIn URL provided, fetch it directly + do name search for completeness
@@ -567,11 +573,12 @@ async function researchPerson(input) {
     `ФИНАНСОВЫЕ ПОКАЗАТЕЛИ (выручка, прибыль, активы 2024-2025):\n${companyFinancials}`,
     `СОТРУДНИКИ И ГЕОГРАФИЯ (численность персонала, офисы, страны):\n${companyEmployees}`,
     `ПОСЛЕДНИЕ НОВОСТИ 2024-2025:\n${companyNews}`,
+    `РУКОВОДСТВО КОМПАНИИ (CEO, Founder, Chairman):\n${companyLeadership}`,
     `ДЕЯТЕЛЬНОСТЬ В УЗБЕКИСТАНЕ:\n${uzbekText}`,
     linkedinText ? `LINKEDIN:\n${linkedinText}` : '',
   ].filter(Boolean).join('\n\n---\n\n');
   // Cap context to ~16k chars (~4k tokens) to stay within TPM limits
-  const context = rawContext.length > 16000 ? rawContext.substring(0, 16000) + '\n\n[...контекст сокращён для соблюдения лимитов...]' : rawContext;
+  const context = rawContext.length > 45000 ? rawContext.substring(0, 45000) + '\n\n[...контекст сокращён для соблюдения лимитов...]' : rawContext;
 
   const prompt = `Ты составляешь официальный справочный документ для Министерства инвестиций Республики Узбекистан. Используй ВСЕ предоставленные данные, особенно контекст от клиента. Все разделы о компании должны содержать САМУЮ СВЕЖУЮ информацию из поисковых результатов 2024-2025 года - численность сотрудников, финансовые показатели, офисы, руководство.
 
@@ -587,18 +594,28 @@ ${company ? `\nКомпания: ${company}` : ''}
   "title": "Полное название должности на русском языке",
   "company_name": "Название компании на языке оригинала (латиница)",
   "company_description_paragraphs": [
-    "Параграф 1 (3-4 предложения): полная история компании - кто основал, когда, где, с чего начиналась, как развивалась до сегодняшнего дня. Штаб-квартира с конкретным городом и штатом/страной. Используй данные из раздела ОБЗОР КОМПАНИИ.",
-    "Параграф 2 (3-4 предложения): АКТУАЛЬНЫЕ финансовые показатели из официальных отчётов 2024-2025 гг. Используй данные из раздела ФИНАНСОВЫЕ ПОКАЗАТЕЛИ. ТОЛЬКО реальные цифры подтверждённые источниками. Оберни КАЖДУЮ неподтверждённую цифру в теги: [?]сумма[/?]. Пример подтверждённого: 'Годовая выручка за 2024 г. составила $ 21,4 млрд.' Пример неподтверждённого: '[?]Выручка оценивается в $ 23 млрд.[/?]'",
-    "Параграф 3 (3-4 предложения): численность сотрудников (актуальная цифра из раздела СОТРУДНИКИ И ГЕОГРАФИЯ), география присутствия - конкретно в каких странах, штатах, регионах работает, сколько офисов/объектов.",
-    "Параграф 4 (3-4 предложения): ключевые продукты, технологии, услуги - чем конкретно занимается и чем известна в своей отрасли.",
-    "Параграф 5 (3-4 предложения): последние новости и достижения 2024-2025 из раздела ПОСЛЕДНИЕ НОВОСТИ, стратегия развития, крупные сделки или проекты."
+    "Параграф 1 (4-5 предложений): полная история компании - кто основал, когда, где, как развивалась. Штаб-квартира с городом и страной. Используй ОБЗОР КОМПАНИИ.",
+    "Параграф 2 (4-5 предложений): АКТУАЛЬНЫЕ финансовые показатели из ФИНАНСОВЫЕ ПОКАЗАТЕЛИ. Выручка, прибыль, EBITDA, капитализация за 2024-2025 гг. Неподтверждённые цифры в [?]...[/?].",
+    "Параграф 3 (4-5 предложений): численность сотрудников из СОТРУДНИКИ И ГЕОГРАФИЯ. Конкретно в каких странах, регионах, сколько офисов/объектов/представительств.",
+    "Параграф 4 (4-5 предложений): ключевые продукты, технологии, услуги - портфель направлений, чем известна в отрасли.",
+    "Параграф 5 (4-5 предложений): последние новости и достижения 2024-2025 из ПОСЛЕДНИЕ НОВОСТИ. Крупные сделки, запуски, награды.",
+    "Параграф 6 (4-5 предложений): стратегия развития, ключевые партнёры и клиенты, рыночная позиция, планы экспансии.",
+    "Параграф 7 (3-4 предложения): ESG-политика, социальная ответственность, корпоративные ценности и репутация на рынке."
   ],
-  "company_activities_paragraph": "2-3 предложения: перечисли основные направления деятельности компании в виде связного текста, без списков.",
+  "company_activities_paragraph": "4-5 предложений: все основные направления деятельности компании связным текстом без списков.",
+  "company_leadership": [
+    {
+      "name": "Имя Фамилия руководителя (транслитерация на русский)",
+      "title": "Должность (CEO / Founder / Chairman / President)",
+      "education": "Образование: степень, университет, год - кратко",
+      "career_summary": "3-4 предложения: карьерный путь, ключевые должности, достижения"
+    }
+  ],
   "company_intro": "1-2 предложения: с какого года и как именно компания сотрудничает с Узбекистаном. Только реальные факты. Если нет подтверждённых данных - напиши об этом честно.",
   "company_uzbekistan": [
     {
       "sector": "Название отрасли",
-      "description": "2-3 конкретных предложения. ТОЛЬКО реальные подтверждённые факты: проекты, суммы инвестиций, партнёры, договорённости, даты. Используй контекст от клиента в первую очередь. Неподтверждённые факты оборачивай в [?]...[/?]. Если реальных данных нет совсем - честно укажи отсутствие присутствия и опиши потенциальные направления сотрудничества."
+      "description": "4-5 конкретных предложений. ТОЛЬКО реальные подтверждённые факты: проекты с названиями, суммы инвестиций, конкретные партнёры, договорённости с датами, статус реализации. Используй ДЕЯТЕЛЬНОСТЬ В УЗБЕКИСТАНЕ и контекст от клиента. Неподтверждённые факты в [?]...[/?]. Если данных нет - честно укажи и опиши потенциальные направления."
     }
   ],
   "education": [
@@ -622,14 +639,11 @@ ${company ? `\nКомпания: ${company}` : ''}
 ТРЕБОВАНИЯ:
 - ТОНАЛЬНОСТЬ: строго нейтральная, без превосходных степеней ("ведущий", "крупнейший", "выдающийся"), без оценочных суждений - только факты
 - ТОЧНОСТЬ ДАННЫХ: используй ТОЛЬКО цифры из предоставленных источников. Если цифра не подтверждена - оберни её в [?]...[/?]. Не придумывай финансовые показатели
-- company_description_paragraphs: РОВНО 5 параграфов, КАЖДЫЙ содержательный, ПОЛНЫЕ предложения:
-  * Параграф 1: основная деятельность, год основания, штаб-квартира (город, штат/страна). Полная история
-  * Параграф 2: финансовые показатели - только реальные цифры. Неподтверждённые в [?]...[/?]
-  * Параграф 3: география - конкретно в каких странах, регионах, штатах работает, сколько офисов
-  * Параграф 4: ключевые продукты/услуги/технологии - чем известна, что производит
-  * Параграф 5: стратегия, последние достижения 2024-2025, планы развития
-- company_activities_paragraph: 3-4 предложения в виде связного текста без списков
-- company_uzbekistan: минимум 3 раздела. Только реальные данные. Если присутствия нет - чётко об этом написать, затем предложить потенциальные направления
+- company_description_paragraphs: РОВНО 7 параграфов, каждый 4-5 полных содержательных предложений
+- company_leadership: ОБЯЗАТЕЛЬНО. Минимум CEO и Founder (если разные люди - оба объекта). Используй раздел РУКОВОДСТВО КОМПАНИИ. Образование и карьеру описывай подробно
+- company_uzbekistan: МИНИМУМ 5 разделов по конкретным отраслям. Каждый раздел 4-5 предложений с реальными фактами и датами. Используй ВСЕ данные из ДЕЯТЕЛЬНОСТЬ В УЗБЕКИСТАНЕ
+- company_activities_paragraph: 4-5 предложений, охватывающих все направления бизнеса
+- company_uzbekistan: МИНИМУМ 5 разделов. Максимально подробно по каждому направлению. Не сокращай информацию
 - education: LinkedIn - ГЛАВНЫЙ источник. Хронологически от старого к новому. Включать ВСЕ ступени: бакалавр, магистр, PhD, курсы, сертификаты - всё без исключения
 - career: LinkedIn - ГЛАВНЫЙ И ОБЯЗАТЕЛЬНЫЙ источник. Включать КАЖДУЮ позицию из LinkedIn: даже краткосрочные, фриланс, консультации, part-time. Хронологически от старого к новому, текущая - ПОСЛЕДНЯЯ. Не пропускать ни одну строку из LinkedIn
 - surname_caps и first_name: ВСЕГДА транслитерировать на русский язык. Примеры: John Smith → СМИТ Джон, Peter Saks → САКС Питер, François → Франсуа, Michael → Майкл
@@ -646,7 +660,7 @@ ${company ? `\nКомпания: ${company}` : ''}
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
     body: JSON.stringify({
       model: 'gpt-4o',
-      max_tokens: 8000,
+      max_tokens: 12000,
       response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -724,18 +738,32 @@ function buildCompanySection(profile) {
     }
   }
 
-  // Activities bullet list
-  if (profile.company_activities_list?.length) {
+  // Activities paragraph
+  if (profile.company_activities_paragraph) {
     out.push(ep());
-    out.push(para([r('Основные направления деятельности:', { bold: true })], { indent: 'body' }));
-    for (const item of profile.company_activities_list) {
-      out.push(new Paragraph({
-        children: parseText(item, cn),
-        alignment: AlignmentType.BOTH,
-        spacing: SP_LIST,
-        indent: INDENT_LIST,
-        indent: INDENT_LIST,
-      }));
+    out.push(para(parseTextUncertain(profile.company_activities_paragraph, cn), { indent: 'body' }));
+  }
+
+  // Leadership section — CEO and Founder
+  if (profile.company_leadership?.length) {
+    out.push(ep());
+    out.push(para([r('Руководство компании:', { bold: true })], { spacing: SP0 }));
+    out.push(ep());
+    for (const leader of profile.company_leadership) {
+      out.push(para([
+        r((leader.name || '') + ' — ', { bold: true, color: BLUE }),
+        r((leader.title || '') + '. ', { bold: true }),
+      ], { spacing: SP0, indent: 'body' }));
+      if (leader.education) {
+        out.push(para([
+          r('Образование: ', { bold: true }),
+          ...parseText(leader.education, cn),
+        ], { spacing: SP0, indent: 'body' }));
+      }
+      if (leader.career_summary) {
+        out.push(para(parseText(leader.career_summary, cn), { indent: 'body' }));
+      }
+      out.push(ep());
     }
   }
 
@@ -762,10 +790,9 @@ function buildUzbekSection(profile) {
   }
 
   for (const s of profile.company_uzbekistan) {
-    out.push(para([
-      r(s.sector + ': ', { bold: true }),
-      ...parseTextUncertain(s.description, cn),
-    ], { indent: 'body' }));
+    out.push(ep());
+    out.push(para([r(s.sector + ':', { bold: true })], { spacing: SP0, indent: 'body' }));
+    out.push(para(parseTextUncertain(s.description || '', cn), { indent: 'body' }));
   }
 
   return out;
@@ -1066,3 +1093,5 @@ app.get('/health', (_, res) => res.json({ status: 'ok' }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`KimKim API running on port ${PORT}`));
+
+
